@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+    v2ray-plugin:
+        build:
+            args:
+                SHADOWSOCKS_LIBEV_VERSION: v3.3.5
+                V2RAY_PLUGIN_VERSION: v1.3.1
+            context: ./v2ray-plugin
