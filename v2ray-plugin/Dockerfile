@@ -1,49 +1,55 @@
-ARG SHADOWSOCKS_LIBEV_VERSION
+FROM alpine:3.12 as shadowsocks-libev-build
 
-FROM golang:1.15-alpine as build
+ARG SHADOWSOCKS_LIBEV_VERSION
+ENV SHADOWSOCKS_LIBEV_VERSION=${SHADOWSOCKS_LIBEV_VERSION}
+
+RUN apk --no-cache add \
+    # dependencies
+    c-ares-dev libev-dev libsodium-dev linux-headers mbedtls-dev pcre-dev \
+    # build tools
+    autoconf automake build-base git libtool
+
+RUN git clone --recurse-submodules https://github.com/shadowsocks/shadowsocks-libev -b ${SHADOWSOCKS_LIBEV_VERSION} /source
+
+WORKDIR /source
+
+RUN set -ex \
+    && ./autogen.sh \
+    && ./configure --disable-documentation --prefix=/build \
+    && make install
+
+
+
+FROM golang:1.15-alpine as v2ray-build
 
 ARG V2RAY_PLUGIN_VERSION
 ENV V2RAY_PLUGIN_VERSION=${V2RAY_PLUGIN_VERSION}
 
-RUN apk --no-cache add git tini \
-    && git clone https://github.com/shadowsocks/v2ray-plugin -b ${V2RAY_PLUGIN_VERSION} /v2ray-plugin
+RUN apk --no-cache add git
+
+RUN git clone https://github.com/shadowsocks/v2ray-plugin -b ${V2RAY_PLUGIN_VERSION} /v2ray-plugin
 
 WORKDIR /v2ray-plugin
 
 RUN go build
 
-FROM shadowsocks/shadowsocks-libev:$SHADOWSOCKS_LIBEV_VERSION
 
-# copy baked binary from previous stage
-COPY --from=build /v2ray-plugin/v2ray-plugin /usr/bin/v2ray-plugin
 
-# copy pre-downloaded tini from previous stage
-# `apk add` won't run as nobody (specified on shadowsocks/shadowsocks-libev)
-COPY --from=build /sbin/tini /sbin/tini
+FROM alpine:3.12
 
-# use tini to reap stalled zombie v2ray-plugin
+RUN apk --no-cache add \
+    # dependencies
+    c-ares libev libsodium mbedtls pcre \
+    # runtime tools
+    bash tini
+
+# copy baked binaries from previous stage
+COPY --from=shadowsocks-libev-build /build/bin/ss-server /usr/bin/ss-server
+COPY --from=v2ray-build /v2ray-plugin/v2ray-plugin /usr/bin/v2ray-plugin
+
 ENTRYPOINT [ "/sbin/tini", "--" ]
 
-# image variables
-ENV ARGS=
-ENV DNS_ADDRS       8.8.8.8,8.8.4.4
-ENV METHOD          aes-256-gcm
-ENV PASSWORD=
-ENV PLUGIN_OPTS     server
-ENV SERVER_ADDR     0.0.0.0
-ENV SERVER_PORT     8388
-ENV TIMEOUT         300
-ENV TZ              UTC
+ADD ./docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-# TODO: complete argument filling
-CMD exec /usr/bin/ss-server \
-    -d $DNS_ADDRS \
-    -k ${PASSWORD:-$(hostname)} \
-    -m $METHOD \
-    -p $SERVER_PORT \
-    --plugin /usr/bin/v2ray-plugin \
-    --plugin-opts "$PLUGIN_OPTS" \
-    -s $SERVER_ADDR \
-    -t $TIMEOUT \
-    -u \
-    $ARGS
+CMD "/docker-entrypoint.sh"

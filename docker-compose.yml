@@ -1,9 +1,17 @@
 version: '3'
 
 services:
-    v2ray-plugin:
+    proxy-native:
         build:
             args:
                 SHADOWSOCKS_LIBEV_VERSION: v3.3.5
                 V2RAY_PLUGIN_VERSION: v1.3.1
             context: ./v2ray-plugin
+        environment:
+            # BIND_ADDRESS:
+            METHOD: aes-128-gcm
+            PASSWORD: password
+            SERVER_HOST: 127.0.0.1
+            SERVER_PORT: 8388
+            V2RAY_OPTS: server;mode=websocket;path=/stream;loglevel=warning
+        network_mode: host
